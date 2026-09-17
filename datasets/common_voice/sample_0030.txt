@@ -1,0 +1,1 @@
+The intro is only seen in attract mode as an intro loop.

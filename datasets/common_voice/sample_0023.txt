@@ -1,0 +1,1 @@
+This did not work as well for characters with high health.

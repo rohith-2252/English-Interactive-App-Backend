@@ -1,18 +1,41 @@
-import spacy
+
+import re
 from collections import Counter
-import language_tool_python
 
-nlp = spacy.load("en_core_web_sm")
-
-grammar_tool = language_tool_python.LanguageTool("en-US")
+import spacy
 
 
-def analyze_text(text):
+# Load English NLP model
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    raise RuntimeError(
+        "spaCy English model is missing.\n"
+        "Run:\n"
+        "python -m spacy download en_core_web_sm"
+    )
+
+
+def analyze_text(text: str) -> dict:
+
+    if not text or not text.strip():
+        return {
+            "word_count": 0,
+            "sentence_count": 0,
+            "unique_word_count": 0,
+            "vocabulary_richness": 0,
+            "average_sentence_length": 0,
+            "repeated_words": {},
+            "noun_count": 0,
+            "verb_count": 0,
+            "adjective_count": 0,
+            "adverb_count": 0
+        }
 
     doc = nlp(text)
 
     # -------------------------
-    # WORDS
+    # Words
     # -------------------------
 
     words = [
@@ -25,114 +48,95 @@ def analyze_text(text):
 
     unique_words = set(words)
 
-    vocabulary_richness = (
-        len(unique_words) / word_count
-        if word_count > 0
-        else 0
-    )
+    unique_word_count = len(unique_words)
 
     # -------------------------
-    # SENTENCES
+    # Vocabulary richness
+    # -------------------------
+
+    if word_count > 0:
+        vocabulary_richness = (
+            unique_word_count / word_count
+        )
+    else:
+        vocabulary_richness = 0
+
+    # -------------------------
+    # Sentences
     # -------------------------
 
     sentences = list(doc.sents)
 
     sentence_count = len(sentences)
 
-    average_sentence_length = (
-        word_count / sentence_count
-        if sentence_count > 0
-        else 0
-    )
+    if sentence_count > 0:
+        average_sentence_length = (
+            word_count / sentence_count
+        )
+    else:
+        average_sentence_length = 0
 
     # -------------------------
-    # REPETITION
+    # Repeated words
     # -------------------------
 
-    frequency = Counter(words)
+    word_frequency = Counter(words)
 
     repeated_words = {
         word: count
-        for word, count in frequency.items()
-        if count > 2
+        for word, count in word_frequency.items()
+        if count > 1
     }
 
     # -------------------------
-    # PARTS OF SPEECH
+    # POS counts
     # -------------------------
 
-    nouns = sum(
+    noun_count = sum(
         1 for token in doc
-        if token.pos_ == "NOUN"
+        if token.pos_ in {"NOUN", "PROPN"}
     )
 
-    verbs = sum(
+    verb_count = sum(
         1 for token in doc
         if token.pos_ == "VERB"
     )
 
-    adjectives = sum(
+    adjective_count = sum(
         1 for token in doc
         if token.pos_ == "ADJ"
     )
 
-    adverbs = sum(
+    adverb_count = sum(
         1 for token in doc
         if token.pos_ == "ADV"
     )
 
-    # -------------------------
-    # GRAMMAR
-    # -------------------------
-
-    matches = grammar_tool.check(text)
-
-    grammar_errors = len(matches)
-
-    grammar_error_details = []
-
-    for match in matches[:10]:
-
-        grammar_error_details.append({
-            "message": match.message,
-            "error": text[
-                match.offset:
-                match.offset + match.errorLength
-            ],
-            "suggestions": match.replacements[:3]
-        })
-
-    # -------------------------
-    # RESULT
-    # -------------------------
-
     return {
-
         "word_count": word_count,
 
         "sentence_count": sentence_count,
 
-        "unique_word_count": len(unique_words),
+        "unique_word_count": unique_word_count,
 
         "vocabulary_richness": round(
-            vocabulary_richness, 3
+            vocabulary_richness,
+            3
         ),
 
         "average_sentence_length": round(
-            average_sentence_length, 2
+            average_sentence_length,
+            2
         ),
 
         "repeated_words": repeated_words,
 
-        "noun_count": nouns,
+        "noun_count": noun_count,
 
-        "verb_count": verbs,
+        "verb_count": verb_count,
 
-        "adjective_count": adjectives,
+        "adjective_count": adjective_count,
 
-        "adverb_count": adverbs,
-
-        "grammar_error_count": grammar_errors,
-
-        "grammar_errors": grammar_error_details
+        "adverb_count": adverb_count
     }
+
