@@ -14,4 +14,7 @@ audioread
 
 numpy
 pandas
-sciki
+scikit-learn
+joblib
+
+spacy
