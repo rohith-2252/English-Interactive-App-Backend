@@ -209,6 +209,48 @@ def save_practice_session(user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
     
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # Check if an identical submission exists from this user within the last 10 seconds
+        transcript_text = data.get("transcript", "").strip()
+        if transcript_text:
+            cursor.execute(
+                """
+                SELECT id, topic, transcript, overall_score, vocabulary_score,
+                       sentence_formation_score, fluency_score, confidence_score,
+                       corrections, vocabulary_tips, overall_feedback, audio_url,
+                       duration_seconds, words_per_minute, created_at
+                FROM practice_sessions
+                WHERE user_id = ? AND transcript = ?
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (user_id, transcript_text)
+            )
+            existing = cursor.fetchone()
+            if existing:
+                try:
+                    prev_time = datetime.fromisoformat(existing["created_at"])
+                    if (datetime.utcnow() - prev_time).total_seconds() < 10:
+                        return {
+                            "id": existing["id"],
+                            "session_id": existing["id"],
+                            "topic": existing["topic"],
+                            "transcript": existing["transcript"],
+                            "overall_score": existing["overall_score"],
+                            "vocabulary_score": existing["vocabulary_score"],
+                            "sentence_formation_score": existing["sentence_formation_score"],
+                            "fluency_score": existing["fluency_score"],
+                            "confidence_score": existing["confidence_score"],
+                            "corrections": json.loads(existing["corrections"] or "[]"),
+                            "vocabulary_tips": json.loads(existing["vocabulary_tips"] or "[]"),
+                            "overall_feedback": existing["overall_feedback"],
+                            "audio_url": existing["audio_url"],
+                            "duration_seconds": existing["duration_seconds"],
+                            "words_per_minute": existing["words_per_minute"],
+                            "created_at": existing["created_at"]
+                        }
+                except Exception:
+                    pass
+
         cursor.execute(
             """
             INSERT OR REPLACE INTO practice_sessions (

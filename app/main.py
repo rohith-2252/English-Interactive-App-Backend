@@ -23,9 +23,11 @@ from app.services.whisper_service import transcribe_audio
 from app.services.audio_analysis import analyze_audio
 from app.services.text_analysis import analyze_text
 from app.services.ml_scoring import predict_score
+from app.services.transcript_corrector import correct_transcript
 from app.services.feedback_service import (
     calculate_scores,
-    generate_feedback
+    generate_feedback,
+    generate_recommendations,
 )
 
 # ==========================================
@@ -182,23 +184,52 @@ async def api_me(authorization: Optional[str] = Header(None)):
 TOPICS = [
     {
         "id": "1",
-        "topic": "Describe your favorite hobby",
-        "prompt": "Talk about what you enjoy doing in your free time, why you like it, and how often you do it."
+        "category": "education",
+        "topic": "College and Technical Skills",
+        "text": "Introduce yourself, your college or background, and your key technical skills.",
+        "prompt": "Introduce yourself, mention where you are studying, and discuss your key technical skills and foundation."
     },
     {
         "id": "2",
-        "topic": "A memorable travel experience",
-        "prompt": "Describe a trip you took that was memorable to you. Where did you go, who did you go with, and what made it special?"
+        "category": "career",
+        "topic": "Your Career Goals",
+        "text": "Talk about what you hope to achieve in your technology or engineering career in the next three years.",
+        "prompt": "Talk about what you hope to achieve in your career in the next three years and how you are preparing for it."
     },
     {
         "id": "3",
-        "topic": "The importance of learning English",
-        "prompt": "Explain why learning English is important for your personal growth, career, and communication."
+        "category": "technology",
+        "topic": "Software Development and Problem Solving",
+        "text": "Explain how you use programming languages and logical thinking to solve challenging problems.",
+        "prompt": "Explain how you use programming languages and logical thinking to solve real-world problems."
     },
     {
         "id": "4",
-        "topic": "Your favorite book or movie",
-        "prompt": "Talk about a book or movie that influenced you. What is the story about and why did you enjoy it?"
+        "category": "hobbies",
+        "topic": "Describe your favorite hobby",
+        "text": "Talk about what you enjoy doing in your free time, why you like it, and how often you do it.",
+        "prompt": "Talk about what you enjoy doing in your free time, why you like it, and how often you do it."
+    },
+    {
+        "id": "5",
+        "category": "travel",
+        "topic": "A memorable travel experience",
+        "text": "Describe a trip you took that was memorable to you. Where did you go, who did you go with, and what made it special?",
+        "prompt": "Describe a trip you took that was memorable to you. Where did you go, who did you go with, and what made it special?"
+    },
+    {
+        "id": "6",
+        "category": "education",
+        "topic": "The importance of learning English",
+        "text": "Explain why fluent English communication is crucial for engineering, interviews, and global collaboration.",
+        "prompt": "Explain why learning English is important for your personal growth, career, and communication."
+    },
+    {
+        "id": "7",
+        "category": "culture",
+        "topic": "Your favorite book or project",
+        "text": "Talk about a software project or book that influenced you and what key lessons you learned.",
+        "prompt": "Talk about a book or project that influenced you. What is the story about and why did you enjoy it?"
     }
 ]
 
@@ -255,6 +286,7 @@ async def analyze_practice(
             # Whisper STT if audio provided
             try:
                 whisper_text = transcribe_audio(saved_path)
+                whisper_text = correct_transcript(whisper_text)
                 if whisper_text and len(whisper_text.strip()) > 0:
                     extracted_transcript = whisper_text
             except Exception as stt_err:
@@ -283,13 +315,16 @@ async def analyze_practice(
                 "filler_word_count": 0
             }
 
-        # Text analysis
+        # Text analysis with ensemble correction & NLP
         text_feats = analyze_text(extracted_transcript)
+        final_transcript = text_feats.get("optimized_transcript") or extracted_transcript
+        corrections_list = text_feats.get("corrections", [])
 
         # ML Scoring & Feedback
         ml_score = predict_score(audio_feats, text_feats)
         scores = calculate_scores(audio_feats, text_feats, ml_score)
         feedback = generate_feedback(audio_feats, text_feats, scores)
+        recommendations = generate_recommendations(audio_feats, text_feats, scores)
 
         session_id = str(uuid.uuid4())
         overall_fb = " ".join(feedback)
@@ -299,7 +334,7 @@ async def analyze_practice(
             "id": session_id,
             "session_id": session_id,
             "topic": topic or "General Speech Practice",
-            "transcript": extracted_transcript,
+            "transcript": final_transcript,
             "audio_filename": saved_filename,
             "audio_url": audio_url,
             "overall_score": int(scores.get("overall", 80)),
@@ -307,8 +342,9 @@ async def analyze_practice(
             "sentence_formation_score": int(scores.get("grammar", 80)),
             "fluency_score": int(scores.get("fluency", 80)),
             "confidence_score": int(scores.get("pronunciation", 80)),
-            "corrections": [],
-            "vocabulary_tips": [f for f in feedback if "vocabulary" in f.lower() or "word" in f.lower()],
+            "corrections": corrections_list,
+            # Actionable improvement tips (separate from overall feedback)
+            "vocabulary_tips": recommendations,
             "overall_feedback": overall_fb,
             "duration_seconds": dur_secs,
             "words_per_minute": wpm_val,
@@ -364,6 +400,7 @@ async def analyze_audio_file(
 
         # 1. Speech -> Text
         transcript = transcribe_audio(saved_path)
+        transcript = correct_transcript(transcript)
 
         # 2. Audio analysis
         audio_features = analyze_audio(saved_path, transcript)
@@ -375,16 +412,20 @@ async def analyze_audio_file(
         score = predict_score(audio_features, text_features)
         scores = calculate_scores(audio_features, text_features, score)
         feedback = generate_feedback(audio_features, text_features, scores)
+        recommendations = generate_recommendations(audio_features, text_features, scores)
 
         session_id = str(uuid.uuid4())
         overall_feedback = " ".join(feedback)
         audio_url = f"/uploads/{filename}"
 
+        final_transcript = text_features.get("optimized_transcript") or transcript
+        corrections_list = text_features.get("corrections", [])
+
         session_dict = {
             "id": session_id,
             "session_id": session_id,
             "topic": "Speech AI Analysis",
-            "transcript": transcript,
+            "transcript": final_transcript,
             "audio_filename": filename,
             "audio_url": audio_url,
             "overall_score": int(scores.get("overall", 80)),
@@ -392,8 +433,8 @@ async def analyze_audio_file(
             "sentence_formation_score": int(scores.get("grammar", 80)),
             "fluency_score": int(scores.get("fluency", 80)),
             "confidence_score": int(scores.get("pronunciation", 80)),
-            "corrections": [],
-            "vocabulary_tips": [f for f in feedback if "vocabulary" in f.lower() or "word" in f.lower()],
+            "corrections": corrections_list,
+            "vocabulary_tips": recommendations,
             "overall_feedback": overall_feedback,
             "duration_seconds": audio_features.get("duration_seconds", 0.0),
             "words_per_minute": audio_features.get("words_per_minute", 0.0),
@@ -412,11 +453,11 @@ async def analyze_audio_file(
             "sentence_formation_score": int(scores.get("grammar", 80)),
             "fluency_score": int(scores.get("fluency", 80)),
             "confidence_score": int(scores.get("pronunciation", 80)),
-            "corrections": [],
-            "vocabulary_tips": [f for f in feedback if "vocabulary" in f.lower() or "word" in f.lower()],
+            "corrections": corrections_list,
+            "vocabulary_tips": recommendations,
             "overall_feedback": overall_feedback,
             "audio_url": audio_url,
-            "transcript": transcript,
+            "transcript": final_transcript,
             "audio_features": audio_features,
             "text_features": text_features,
             "scores": scores,
